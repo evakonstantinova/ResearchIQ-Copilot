@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Paperclip, Send, FileText, Sparkles, X } from "lucide-react";
 import "./App.css";
 
@@ -18,6 +18,14 @@ function App() {
   const [paperId, setPaperId] = useState(localStorage.getItem("paper_id"));
   const [loading, setLoading] = useState(false);
 
+  const messagesEndRef = useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "smooth",
+    });
+  }, [messages, loading]);
+
   const uploadPaper = async (file) => {
     const formData = new FormData();
     formData.append("file", file);
@@ -28,11 +36,12 @@ function App() {
     });
 
     if (!response.ok) {
-    const errorData = await response.json();
-    throw new Error(errorData.detail || "Failed to upload paper.");
+      const errorData = await response.json();
+      throw new Error(errorData.detail || "Failed to upload paper.");
     }
 
     const data = await response.json();
+
     localStorage.setItem("paper_id", data.paper_id);
     setPaperId(data.paper_id);
 
@@ -41,7 +50,6 @@ function App() {
 
   const handleFileChange = async (event) => {
     const selectedFiles = Array.from(event.target.files);
-    setFiles((prev) => [...prev, ...selectedFiles].slice(0, 10));
 
     const pdfFile = selectedFiles.find((file) =>
       file.name.toLowerCase().endsWith(".pdf")
@@ -55,26 +63,27 @@ function App() {
           content: "Please upload a PDF file first. DOCX support can be added later.",
         },
       ]);
+      event.target.value = "";
       return;
     }
 
+    setFiles([pdfFile]);
+    setLoading(true);
+
     try {
-      setLoading(true);
+      const data = await uploadPaper(pdfFile);
 
-     const data = await uploadPaper(pdfFile);
-
-setMessages((prev) => [
-  ...prev,
-  {
-    role: "user",
-    content: `📄 ${data.filename}`,
-  },
-  {
-    role: "assistant",
-    content: "File uploaded. You can now ask me anything about this paper.",
-  },
-]);
-
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          content: `📄 ${data.filename}`,
+        },
+        {
+          role: "assistant",
+          content: "File uploaded. You can now ask me anything about this paper.",
+        },
+      ]);
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -85,6 +94,7 @@ setMessages((prev) => [
       ]);
     } finally {
       setLoading(false);
+      setFiles([]);
       event.target.value = "";
     }
   };
@@ -93,35 +103,37 @@ setMessages((prev) => [
     setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
- const askPaper = async (question) => {
-  const currentPaperId = paperId || localStorage.getItem("paper_id");
+  const askPaper = async (question) => {
+    const currentPaperId = paperId || localStorage.getItem("paper_id");
 
-  const endpoint = currentPaperId ? "/ask-paper" : "/chat";
+    const endpoint = currentPaperId ? "/ask-paper" : "/chat";
 
-  const body = currentPaperId
-    ? {
-        paper_id: currentPaperId,
-        question,
-      }
-    : {
-        message: question,
-      };
+    const body = currentPaperId
+      ? {
+          paper_id: currentPaperId,
+          question,
+        }
+      : {
+          message: question,
+        };
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
 
-  if (!response.ok) {
-    throw new Error("Failed to get answer.");
-  }
+    if (!response.ok) {
+      localStorage.removeItem("paper_id");
+      setPaperId(null);
+      throw new Error("Failed to get answer.");
+    }
 
-  const data = await response.json();
-  return data.answer;
-};
+    const data = await response.json();
+    return data.answer;
+  };
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
@@ -148,7 +160,7 @@ setMessages((prev) => [
         {
           role: "assistant",
           content:
-            "Something went wrong while contacting the backend. Make sure FastAPI is running on http://127.0.0.1:8000.",
+            "Something went wrong while contacting the backend. Please try again.",
         },
       ]);
     } finally {
@@ -208,11 +220,13 @@ setMessages((prev) => [
           ))}
 
           {loading && (
-  <div className="message assistant">
-    <div className="bubble typing-dots">...</div>
-  </div>
-)}
-</div>
+            <div className="message assistant">
+              <div className="bubble typing-dots">...</div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
 
         <div className="composer-wrap">
           {files.length > 0 && (
