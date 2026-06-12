@@ -88,31 +88,35 @@ function App() {
     setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
   };
 
-  const askPaper = async (question) => {
-    const currentPaperId = paperId || localStorage.getItem("paper_id");
+ const askPaper = async (question) => {
+  const currentPaperId = paperId || localStorage.getItem("paper_id");
 
-    if (!currentPaperId) {
-      return "Please upload a research paper first, then ask me questions about it.";
-    }
+  const endpoint = currentPaperId ? "/ask-paper" : "/chat";
 
-    const response = await fetch(`${API_URL}/ask-paper`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
+  const body = currentPaperId
+    ? {
         paper_id: currentPaperId,
         question,
-      }),
-    });
+      }
+    : {
+        message: question,
+      };
 
-    if (!response.ok) {
-      throw new Error("Failed to get answer.");
-    }
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
 
-    const data = await response.json();
-    return data.answer;
-  };
+  if (!response.ok) {
+    throw new Error("Failed to get answer.");
+  }
+
+  const data = await response.json();
+  return data.answer;
+};
 
   const sendMessage = async () => {
     if (!input.trim() || loading) return;
