@@ -61,15 +61,20 @@ function App() {
     try {
       setLoading(true);
 
-      const data = await uploadPaper(pdfFile);
+     const data = await uploadPaper(pdfFile);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: `Uploaded "${data.filename}" successfully. You can now ask questions about this research paper.`,
-        },
-      ]);
+setMessages((prev) => [
+  ...prev,
+  {
+    role: "user",
+    content: `📄 ${data.filename}`,
+  },
+  {
+    role: "assistant",
+    content: "File uploaded. You can now ask me anything about this paper.",
+  },
+]);
+
     } catch (error) {
       setMessages((prev) => [
         ...prev,
