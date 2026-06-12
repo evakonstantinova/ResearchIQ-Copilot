@@ -28,11 +28,11 @@ function App() {
     });
 
     if (!response.ok) {
-      throw new Error("Failed to upload paper.");
+    const errorData = await response.json();
+    throw new Error(errorData.detail || "Failed to upload paper.");
     }
 
     const data = await response.json();
-
     localStorage.setItem("paper_id", data.paper_id);
     setPaperId(data.paper_id);
 
@@ -75,7 +75,7 @@ function App() {
         ...prev,
         {
           role: "assistant",
-          content: "Could not upload this file. Please check that your backend is running.",
+          content: error.message,
         },
       ]);
     } finally {
@@ -225,7 +225,7 @@ function App() {
               <Paperclip size={21} />
               <input
                 type="file"
-                accept=".pdf,.docx"
+                accept=".pdf"
                 multiple
                 onChange={handleFileChange}
               />
