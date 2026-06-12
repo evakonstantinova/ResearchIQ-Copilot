@@ -10,7 +10,12 @@ import requests
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+api_key = os.getenv("OPENAI_API_KEY")
+
+if not api_key:
+    raise ValueError("OPENAI_API_KEY not found. Check your backend/.env file.")
+
+client = OpenAI(api_key=api_key)
 
 app = FastAPI(title="ResearchIQ Copilot Backend")
 
@@ -29,7 +34,7 @@ papers = {}
 
 
 class AskRequest(BaseModel):
-    paper_id: str
+    paper_id: str | None = None
     question: str
 
 
@@ -44,6 +49,16 @@ class ChatRequest(BaseModel):
 class LiteratureRequest(BaseModel):
     query: str
     limit: int = 10
+
+
+def ask_openai(messages, temperature=0.3):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages,
+        temperature=temperature,
+    )
+
+    return response.choices[0].message.content
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
@@ -65,18 +80,17 @@ def trim_text(text: str, max_chars: int = 45000) -> str:
     middle = text[middle_start:middle_start + 12000]
     end = text[-15000:]
 
-    return start + "\n\n[...middle section...]\n\n" + middle + "\n\n[...ending section...]\n\n" + end
+    return (
+        start
+        + "\n\n[...middle section...]\n\n"
+        + middle
+        + "\n\n[...ending section...]\n\n"
+        + end
+    )
 
 
-@app.get("/")
-def home():
-    return {"message": "ResearchIQ Copilot backend is running"}
-
-
-@app.post("/chat")
-async def general_chat(request: ChatRequest):
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+def general_chat_answer(message: str) -> str:
+    return ask_openai(
         messages=[
             {
                 "role": "system",
@@ -104,13 +118,22 @@ Never invent academic citations, papers, journals, authors, DOIs, or results.
             },
             {
                 "role": "user",
-                "content": request.message
-            }
+                "content": message,
+            },
         ],
         temperature=0.4,
     )
 
-    return {"answer": response.choices[0].message.content}
+
+@app.get("/")
+def home():
+    return {"message": "ResearchIQ Copilot backend is running"}
+
+
+@app.post("/chat")
+async def general_chat(request: ChatRequest):
+    answer = general_chat_answer(request.message)
+    return {"answer": answer}
 
 
 @app.post("/upload-paper")
@@ -131,26 +154,30 @@ async def upload_paper(file: UploadFile = File(...)):
 
     papers[paper_id] = {
         "filename": file.filename,
-        "text": text
+        "text": text,
     }
 
     return {
         "paper_id": paper_id,
         "filename": file.filename,
         "characters_extracted": len(text),
-        "message": "Paper uploaded and processed successfully."
+        "message": "Paper uploaded and processed successfully.",
     }
 
 
 @app.post("/ask-paper")
 async def ask_paper(request: AskRequest):
-    if request.paper_id not in papers:
-        raise HTTPException(status_code=404, detail="Paper not found.")
+    if not request.paper_id or request.paper_id not in papers:
+        answer = general_chat_answer(request.question)
+        return {
+            "answer": answer,
+            "mode": "general_chat",
+            "note": "No active uploaded paper was found, so I answered as a general research assistant."
+        }
 
     paper_text = trim_text(papers[request.paper_id]["text"])
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    answer = ask_openai(
         messages=[
             {
                 "role": "system",
@@ -184,12 +211,15 @@ Uploaded paper text:
 User question:
 {request.question}
 """
-            }
+            },
         ],
         temperature=0.2,
     )
 
-    return {"answer": response.choices[0].message.content}
+    return {
+        "answer": answer,
+        "mode": "paper_chat",
+    }
 
 
 @app.post("/generate-summary")
@@ -199,8 +229,7 @@ async def generate_summary(request: SummaryRequest):
 
     paper_text = trim_text(papers[request.paper_id]["text"])
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
+    summary = ask_openai(
         messages=[
             {
                 "role": "system",
@@ -235,12 +264,12 @@ Create a structured research paper summary with these sections:
 Paper text:
 {paper_text}
 """
-            }
+            },
         ],
         temperature=0.2,
     )
 
-    return {"summary": response.choices[0].message.content}
+    return {"summary": summary}
 
 
 @app.post("/find-literature")
@@ -250,16 +279,22 @@ async def find_literature(request: LiteratureRequest):
     params = {
         "query": request.query,
         "limit": request.limit,
-        "fields": "title,authors,year,venue,journal,citationCount,externalIds,url,abstract,isOpenAccess"
+        "fields": "title,authors,year,venue,journal,citationCount,externalIds,url,abstract,isOpenAccess",
     }
 
     try:
         result = requests.get(url, params=params, timeout=20)
     except requests.RequestException:
-        raise HTTPException(status_code=500, detail="Could not connect to literature search API.")
+        raise HTTPException(
+            status_code=500,
+            detail="Could not connect to literature search API."
+        )
 
     if result.status_code != 200:
-        raise HTTPException(status_code=500, detail="Literature search failed.")
+        raise HTTPException(
+            status_code=500,
+            detail="Literature search failed."
+        )
 
     papers_found = result.json().get("data", [])
 
@@ -280,7 +315,7 @@ async def find_literature(request: LiteratureRequest):
             "url": paper.get("url"),
             "abstract": paper.get("abstract"),
             "is_open_access": paper.get("isOpenAccess"),
-            "verification": "Real result returned from Semantic Scholar API. Q1 status is not yet verified."
+            "verification": "Real result returned from Semantic Scholar API. Q1 status is not yet verified.",
         })
 
     return {"results": cleaned}
