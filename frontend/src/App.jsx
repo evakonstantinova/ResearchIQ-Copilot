@@ -208,11 +208,11 @@ setMessages((prev) => [
           ))}
 
           {loading && (
-            <div className="message assistant">
-              <div className="bubble">ResearchIQ is thinking...</div>
-            </div>
-          )}
-        </div>
+  <div className="message assistant">
+    <div className="bubble typing-dots">...</div>
+  </div>
+)}
+</div>
 
         <div className="composer-wrap">
           {files.length > 0 && (
