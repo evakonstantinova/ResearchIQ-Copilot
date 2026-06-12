@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import fitz  # PyMuPDF
 import os
 import uuid
+import requests
 
 load_dotenv()
 
@@ -16,9 +17,9 @@ app = FastAPI(title="ResearchIQ Copilot Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-     ],
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +35,15 @@ class AskRequest(BaseModel):
 
 class SummaryRequest(BaseModel):
     paper_id: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+class LiteratureRequest(BaseModel):
+    query: str
+    limit: int = 10
 
 
 def extract_pdf_text(file_bytes: bytes) -> str:
@@ -61,6 +71,46 @@ def trim_text(text: str, max_chars: int = 45000) -> str:
 @app.get("/")
 def home():
     return {"message": "ResearchIQ Copilot backend is running"}
+
+
+@app.post("/chat")
+async def general_chat(request: ChatRequest):
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": """
+You are ResearchIQ Copilot, a friendly research-first AI assistant.
+
+You are strongest at:
+- research paper analysis
+- literature reviews
+- research gaps
+- methodology
+- academic writing
+- data analysis
+- AI and healthcare research
+- summarising complex texts
+
+You can still hold normal conversation and answer general questions.
+
+If the user asks something very random or outside your strongest area,
+answer helpfully but honestly. You may say that your strongest area is
+research and academic work.
+
+Never invent academic citations, papers, journals, authors, DOIs, or results.
+"""
+            },
+            {
+                "role": "user",
+                "content": request.message
+            }
+        ],
+        temperature=0.4,
+    )
+
+    return {"answer": response.choices[0].message.content}
 
 
 @app.post("/upload-paper")
@@ -139,9 +189,7 @@ User question:
         temperature=0.2,
     )
 
-    return {
-        "answer": response.choices[0].message.content
-    }
+    return {"answer": response.choices[0].message.content}
 
 
 @app.post("/generate-summary")
@@ -192,6 +240,47 @@ Paper text:
         temperature=0.2,
     )
 
-    return {
-        "summary": response.choices[0].message.content
+    return {"summary": response.choices[0].message.content}
+
+
+@app.post("/find-literature")
+async def find_literature(request: LiteratureRequest):
+    url = "https://api.semanticscholar.org/graph/v1/paper/search"
+
+    params = {
+        "query": request.query,
+        "limit": request.limit,
+        "fields": "title,authors,year,venue,journal,citationCount,externalIds,url,abstract,isOpenAccess"
     }
+
+    try:
+        result = requests.get(url, params=params, timeout=20)
+    except requests.RequestException:
+        raise HTTPException(status_code=500, detail="Could not connect to literature search API.")
+
+    if result.status_code != 200:
+        raise HTTPException(status_code=500, detail="Literature search failed.")
+
+    papers_found = result.json().get("data", [])
+
+    cleaned = []
+
+    for paper in papers_found:
+        external_ids = paper.get("externalIds") or {}
+        doi = external_ids.get("DOI")
+
+        cleaned.append({
+            "title": paper.get("title"),
+            "authors": [author.get("name") for author in paper.get("authors", [])],
+            "year": paper.get("year"),
+            "venue": paper.get("venue"),
+            "journal": paper.get("journal"),
+            "citation_count": paper.get("citationCount"),
+            "doi": doi,
+            "url": paper.get("url"),
+            "abstract": paper.get("abstract"),
+            "is_open_access": paper.get("isOpenAccess"),
+            "verification": "Real result returned from Semantic Scholar API. Q1 status is not yet verified."
+        })
+
+    return {"results": cleaned}
