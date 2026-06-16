@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, Send, FileText, Sparkles, X } from "lucide-react";
 import "./App.css";
+import ReactMarkdown from "react-markdown";
 
 const API_URL = "http://127.0.0.1:8000";
 const MAX_FILES = 10;
@@ -31,7 +32,11 @@ function fileSize(bytes) {
 }
 
 function MessageText({ content }) {
-  return <div className="message-text">{content}</div>;
+  return (
+    <div className="message-text">
+      <ReactMarkdown>{content}</ReactMarkdown>
+    </div>
+  );
 }
 
 function AttachmentList({ files }) {

@@ -232,23 +232,26 @@ button {
 .message-row.assistant .message-inner {
   padding: 4px 2px;
   color: #111827;
+  text-align: left;
 }
 
 .message-text {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  text-align: left;
+}
+
+.message-text p,
+.message-text ul,
+.message-text ol,
+.message-text li,
+.message-text div {
+  text-align: left;
 }
 
 .message-text strong,
 .message-text b {
   font-weight: 750;
-}
-
-.message-files,
-.selected-files {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .message-files {

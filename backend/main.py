@@ -201,13 +201,25 @@ def search_semantic_scholar(query: str, limit: int = 10) -> list[dict[str, Any]]
         "fields": "title,authors,year,venue,journal,citationCount,externalIds,url,abstract,isOpenAccess,publicationTypes",
     }
 
+    headers = {
+        "User-Agent": "ResearchIQ-Copilot/1.0"
+    }
+
     try:
-        result = requests.get(SEMANTIC_SCHOLAR_URL, params=params, timeout=20)
+        result = requests.get(
+            SEMANTIC_SCHOLAR_URL,
+            params=params,
+            headers=headers,
+            timeout=30,
+        )
     except requests.RequestException as exc:
-        raise HTTPException(status_code=500, detail=f"Could not connect to Semantic Scholar: {exc}")
+        print("Semantic Scholar connection error:", exc)
+        return []
 
     if result.status_code != 200:
-        raise HTTPException(status_code=500, detail="Semantic Scholar search failed.")
+        print("Semantic Scholar status:", result.status_code)
+        print("Semantic Scholar response:", result.text[:500])
+        return []
 
     raw_papers = result.json().get("data", [])
     cleaned: list[dict[str, Any]] = []
@@ -216,8 +228,10 @@ def search_semantic_scholar(query: str, limit: int = 10) -> list[dict[str, Any]]
     for paper in raw_papers:
         title = paper.get("title") or "Untitled"
         key = re.sub(r"\W+", "", title.lower())
+
         if not key or key in seen:
             continue
+
         seen.add(key)
 
         ext = paper.get("externalIds") or {}
@@ -228,7 +242,11 @@ def search_semantic_scholar(query: str, limit: int = 10) -> list[dict[str, Any]]
         cleaned.append(
             {
                 "title": title,
-                "authors": [a.get("name") for a in paper.get("authors", []) if a.get("name")],
+                "authors": [
+                    a.get("name")
+                    for a in paper.get("authors", [])
+                    if a.get("name")
+                ],
                 "year": paper.get("year"),
                 "venue": venue,
                 "citation_count": paper.get("citationCount"),
@@ -242,10 +260,11 @@ def search_semantic_scholar(query: str, limit: int = 10) -> list[dict[str, Any]]
         )
 
     cleaned.sort(
-        key=lambda p: ((p.get("year") or 0), (p.get("citation_count") or 0)), reverse=True
+        key=lambda p: ((p.get("year") or 0), (p.get("citation_count") or 0)),
+        reverse=True,
     )
-    return cleaned
 
+    return cleaned
 
 def literature_context(papers: list[dict[str, Any]], query: str) -> str:
     if not papers:
