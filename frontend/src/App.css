@@ -254,6 +254,38 @@ button {
   font-weight: 750;
 }
 
+.message-text h1 {
+  font-size: 32px;
+  font-weight: 800;
+  margin: 20px 0 8px;
+  line-height: 1.1;
+}
+
+.message-text h2 {
+  font-size: 26px;
+  font-weight: 750;
+  margin: 16px 0 6px;
+  line-height: 1.15;
+}
+
+.message-text h3 {
+  font-size: 21px;
+  font-weight: 700;
+  margin: 12px 0 4px;
+  line-height: 1.2;
+}
+
+.message-text p {
+  margin: 6px 0;
+  line-height: 1.7;
+}
+
+.message-text h1:first-child,
+.message-text h2:first-child,
+.message-text h3:first-child {
+  margin-top: 0;
+}
+
 .message-files {
   margin-bottom: 9px;
 }

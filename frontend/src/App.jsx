@@ -124,9 +124,69 @@ export default function App() {
 
   const sendMessage = async () => {
     const text = input.trim();
+
     const filesToSend = selectedFiles;
 
     if ((!text && !filesToSend.length) || loading) return;
+
+    const wantsDoc =
+  /doc file|word file|document file|put.*in.*doc|create.*doc/i.test(text);
+
+if (wantsDoc) {
+  const lastAssistantMessage = [...messages]
+    .reverse()
+    .find((m) => m.role === "assistant");
+
+  setMessages((prev) => [
+    ...prev,
+    {
+      role: "user",
+      content: text,
+      files: [],
+    },
+  ]);
+
+  setInput("");
+  setLoading(true);
+
+  try {
+    if (!lastAssistantMessage) {
+      throw new Error("No assistant message found.");
+    }
+
+    const res = await fetch(`${API_URL}/create-doc`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: lastAssistantMessage.content,
+        history: [],
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error("Document creation failed.");
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+
+    a.href = url;
+    a.download = "researchiq_document.docx";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+
+    pushMessage("assistant", "Done — I created the Word document for you.");
+  } catch (err) {
+    pushMessage("assistant", "Sorry, I couldn't create the Word document.");
+  } finally {
+    setLoading(false);
+  }
+
+  return;
+}
 
     const userText = text || "Please analyse the attached document.";
     const userMessage = {
