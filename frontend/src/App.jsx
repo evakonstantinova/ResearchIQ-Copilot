@@ -3,189 +3,207 @@ import { Paperclip, Send, FileText, Sparkles, X } from "lucide-react";
 import "./App.css";
 
 const API_URL = "http://127.0.0.1:8000";
+const MAX_FILES = 10;
 
-function App() {
+async function sendChatMessage({ message, files, history }) {
+  const formData = new FormData();
+  formData.append("message", message);
+  formData.append("history", JSON.stringify(history || []));
+  files.forEach((file) => formData.append("files", file));
+
+  const res = await fetch(`${API_URL}/chat`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.detail || `Request failed (${res.status})`);
+  }
+
+  return res.json();
+}
+
+function fileSize(bytes) {
+  if (!bytes) return "0 KB";
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function MessageText({ content }) {
+  return <div className="message-text">{content}</div>;
+}
+
+function AttachmentList({ files }) {
+  if (!files?.length) return null;
+
+  return (
+    <div className="message-files">
+      {files.map((file, index) => (
+        <div className="message-file" key={`${file.name}-${index}`}>
+          <FileText size={15} />
+          <div>
+            <span>{file.name}</span>
+            <small>{fileSize(file.size)}</small>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function App() {
   const [started, setStarted] = useState(false);
   const [messages, setMessages] = useState([
     {
       role: "assistant",
       content:
-        "Hi, I’m ResearchIQ Copilot. Ask me about research topics, literature reviews, research gaps, or upload documents for analysis.",
+        "Hi, I’m ResearchIQ Copilot. Attach papers or ask me anything about research, methodology, literature, gaps, citations, or similar studies.",
+      files: [],
     },
   ]);
+  const [history, setHistory] = useState([]);
   const [input, setInput] = useState("");
-  const [files, setFiles] = useState([]);
-  const [paperId, setPaperId] = useState(localStorage.getItem("paper_id"));
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   const messagesEndRef = useRef(null);
+  const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const uploadPaper = async (file) => {
-    const formData = new FormData();
-    formData.append("file", file);
-
-    const response = await fetch(`${API_URL}/upload-paper`, {
-      method: "POST",
-      body: formData,
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.detail || "Failed to upload paper.");
-    }
-
-    const data = await response.json();
-
-    localStorage.setItem("paper_id", data.paper_id);
-    setPaperId(data.paper_id);
-
-    return data;
+  const resizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`;
   };
 
-  const handleFileChange = async (event) => {
-    const selectedFiles = Array.from(event.target.files);
+  const addFiles = (incomingFiles) => {
+    const accepted = Array.from(incomingFiles || []).filter((file) => {
+      const name = file.name.toLowerCase();
+      return name.endsWith(".pdf") || name.endsWith(".docx") || name.endsWith(".txt");
+    });
 
-    const pdfFile = selectedFiles.find((file) =>
-      file.name.toLowerCase().endsWith(".pdf")
-    );
-
-    if (!pdfFile) {
+    if (!accepted.length) {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "Please upload a PDF file first. DOCX support can be added later.",
+          content: "Please attach PDF, DOCX, or TXT files only.",
+          files: [],
         },
       ]);
-      event.target.value = "";
       return;
     }
 
-    setFiles([pdfFile]);
-    setLoading(true);
-
-    try {
-      const data = await uploadPaper(pdfFile);
-
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "user",
-          content: `📄 ${data.filename}`,
-        },
-        {
-          role: "assistant",
-          content: "File uploaded. You can now ask me anything about this paper.",
-        },
-      ]);
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: error.message,
-        },
-      ]);
-    } finally {
-      setLoading(false);
-      setFiles([]);
-      event.target.value = "";
-    }
-  };
-
-  const removeFile = (indexToRemove) => {
-    setFiles((prev) => prev.filter((_, index) => index !== indexToRemove));
-  };
-
-  const askPaper = async (question) => {
-    const currentPaperId = paperId || localStorage.getItem("paper_id");
-
-    const endpoint = currentPaperId ? "/ask-paper" : "/chat";
-
-    const body = currentPaperId
-      ? {
-          paper_id: currentPaperId,
-          question,
-        }
-      : {
-          message: question,
-        };
-
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+    setSelectedFiles((prev) => {
+      const merged = [...prev, ...accepted];
+      const unique = merged.filter(
+        (file, index, arr) =>
+          arr.findIndex(
+            (x) => x.name === file.name && x.size === file.size && x.lastModified === file.lastModified
+          ) === index
+      );
+      return unique.slice(0, MAX_FILES);
     });
+  };
 
-    if (!response.ok) {
-      localStorage.removeItem("paper_id");
-      setPaperId(null);
-      throw new Error("Failed to get answer.");
-    }
-
-    const data = await response.json();
-    return data.answer;
+  const removeSelectedFile = (index) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const sendMessage = async () => {
-    if (!input.trim() || loading) return;
+    const text = input.trim();
+    const filesToSend = selectedFiles;
 
-    const userText = input;
+    if ((!text && !filesToSend.length) || loading) return;
 
-    setMessages((prev) => [...prev, { role: "user", content: userText }]);
+    const userText = text || "Please analyse the attached document.";
+    const userMessage = {
+      role: "user",
+      content: userText,
+      files: filesToSend.map((file) => ({ name: file.name, size: file.size })),
+    };
+
+    setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setSelectedFiles([]);
     setLoading(true);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     try {
-      const answer = await askPaper(userText);
+      const data = await sendChatMessage({
+        message: userText,
+        files: filesToSend,
+        history,
+      });
 
-      setMessages((prev) => [
+      const assistantMessage = {
+        role: "assistant",
+        content: data.answer,
+        files: [],
+      };
+
+      setMessages((prev) => [...prev, assistantMessage]);
+      setHistory((prev) => [
         ...prev,
         {
-          role: "assistant",
-          content: answer,
-        },
-      ]);
-    } catch (error) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
+          role: "user",
           content:
-            "Something went wrong while contacting the backend. Please try again.",
+            filesToSend.length > 0
+              ? `${userText}\n\nAttached files: ${filesToSend.map((f) => f.name).join(", ")}`
+              : userText,
+        },
+        { role: "assistant", content: data.answer },
+      ]);
+    } catch (err) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          content: `Something went wrong: ${err.message}\n\nMake sure your backend is running with:\ncd backend\nuvicorn main:app --reload`,
+          files: [],
         },
       ]);
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetChat = () => {
+    setMessages([
+      {
+        role: "assistant",
+        content:
+          "New chat started. Attach papers or ask me to search literature directly in the conversation.",
+        files: [],
+      },
+    ]);
+    setHistory([]);
+    setInput("");
+    setSelectedFiles([]);
   };
 
   if (!started) {
     return (
       <div className="home">
-        <div className="hero">
-          <div className="logo">
-            <Sparkles size={24} />
+        <div className="hero-card">
+          <div className="brand-pill">
+            <Sparkles size={20} />
             <span>ResearchIQ Copilot</span>
           </div>
-
           <h1>Your AI research assistant</h1>
-
           <p>
-            Chat with research documents, generate literature reviews, identify
-            research gaps, compare methodologies, and create research-ready
-            outputs.
+            Chat with papers, compare documents, find similar literature, search real studies,
+            and generate research summaries in one clean dialogue.
           </p>
-
-          <button onClick={() => setStarted(true)} className="start-button">
+          <button className="primary-button" onClick={() => setStarted(true)}>
             Start Research Chat
           </button>
         </div>
@@ -194,48 +212,76 @@ function App() {
   }
 
   return (
-    <div className="chat-page no-sidebar">
-      <main className="chat-main full">
-        <div className="top-bar">
-          <div className="top-brand">
-            <Sparkles size={18} />
-            <span>ResearchIQ Copilot</span>
-          </div>
-        </div>
+    <div
+      className={`chat-shell ${dragging ? "is-dragging" : ""}`}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragging(false);
+        addFiles(e.dataTransfer.files);
+      }}
+    >
+      <header className="top-bar">
+        <button className="brand-button" onClick={() => setStarted(false)}>
+          <Sparkles size={17} />
+          <span>ResearchIQ</span>
+        </button>
+        <button className="ghost-button" onClick={resetChat}>
+          New chat
+        </button>
+      </header>
 
+      <main className="chat-main">
         <div className="messages">
           {messages.length === 1 && (
-            <div className="clean-welcome">
-              <h1>What are you researching today?</h1>
+            <div className="welcome-inline">
+              <h2>What are you researching today?</h2>
               <p>
-                Ask a research question or attach a PDF research paper for analysis.
+                Try: “Find similar papers to this PDF”, “summarise this article”, or
+                “search recent literature on quantum neural networks”.
               </p>
             </div>
           )}
 
-          {messages.map((message, index) => (
-            <div key={index} className={`message ${message.role}`}>
-              <div className="bubble">{message.content}</div>
+          {messages.map((msg, index) => (
+            <div className={`message-row ${msg.role}`} key={index}>
+              <div className="message-inner">
+                <AttachmentList files={msg.files} />
+                <MessageText content={msg.content} />
+              </div>
             </div>
           ))}
 
           {loading && (
-            <div className="message assistant">
-              <div className="bubble typing-dots">...</div>
+            <div className="message-row assistant">
+              <div className="message-inner typing-inner">
+                <div className="typing-dots" aria-label="ResearchIQ is thinking">
+                  <span />
+                  <span />
+                  <span />
+                </div>
+              </div>
             </div>
           )}
 
           <div ref={messagesEndRef} />
         </div>
+      </main>
 
-        <div className="composer-wrap">
-          {files.length > 0 && (
-            <div className="attached-files">
-              {files.map((file, index) => (
-                <div className="file-chip" key={index}>
+      <footer className="composer-wrap">
+        <div className="composer">
+          {selectedFiles.length > 0 && (
+            <div className="selected-files">
+              {selectedFiles.map((file, index) => (
+                <div className="selected-file" key={`${file.name}-${index}`}>
                   <FileText size={15} />
                   <span>{file.name}</span>
-                  <button onClick={() => removeFile(index)}>
+                  <small>{fileSize(file.size)}</small>
+                  <button onClick={() => removeSelectedFile(index)} title="Remove file">
                     <X size={14} />
                   </button>
                 </div>
@@ -243,22 +289,32 @@ function App() {
             </div>
           )}
 
-          <div className="chat-input-area">
-            <label className="attach-icon">
+          <div className="input-row">
+            <label className="attach-button" title="Attach PDF, DOCX, or TXT">
               <Paperclip size={21} />
               <input
+                ref={fileInputRef}
                 type="file"
-                accept=".pdf"
                 multiple
-                onChange={handleFileChange}
+                accept=".pdf,.docx,.txt"
+                onChange={(e) => {
+                  addFiles(e.target.files);
+                  e.target.value = "";
+                }}
+                disabled={loading}
               />
             </label>
 
             <textarea
+              ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask ResearchIQ anything..."
+              rows={1}
+              placeholder="Message ResearchIQ…"
               disabled={loading}
+              onChange={(e) => {
+                setInput(e.target.value);
+                resizeTextarea();
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -267,14 +323,21 @@ function App() {
               }}
             />
 
-            <button onClick={sendMessage} className="send-button" disabled={loading}>
-              <Send size={19} />
+            <button
+              className="send-button"
+              onClick={sendMessage}
+              disabled={loading || (!input.trim() && selectedFiles.length === 0)}
+              title="Send"
+            >
+              <Send size={18} />
             </button>
           </div>
         </div>
-      </main>
+        <p className="footer-note">
+          ResearchIQ can search live literature through Semantic Scholar when you ask for papers,
+          citations, related work, or similar studies.
+        </p>
+      </footer>
     </div>
   );
 }
-
-export default App;
