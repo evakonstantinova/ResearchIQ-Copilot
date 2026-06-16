@@ -4,13 +4,17 @@ import json
 import os
 import re
 from typing import Any
-
+from pydantic import BaseModel
+from fastapi.responses import FileResponse
+from docx import Document
+import tempfile
 import fitz  # PyMuPDF
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
+
 
 try:
     from docx import Document
@@ -411,3 +415,32 @@ async def find_literature_legacy(query: str = Form("")):
     if not q:
         raise HTTPException(status_code=400, detail="Query is required.")
     return {"results": search_semantic_scholar(q, limit=10)}
+
+class CreateDocRequest(BaseModel):
+    message: str
+    history: list[dict] = []
+
+
+@app.post("/create-doc")
+async def create_doc(request: CreateDocRequest):
+    doc = Document()
+    doc.add_heading("ResearchIQ Document", level=1)
+
+    content = request.message.replace("#", "").replace("*", "")
+
+    for line in content.split("\n"):
+        clean = line.strip()
+
+        if not clean:
+            continue
+
+        doc.add_paragraph(clean)
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
+    doc.save(temp_file.name)
+
+    return FileResponse(
+        temp_file.name,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        filename="researchiq_document.docx",
+    )
